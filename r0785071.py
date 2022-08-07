@@ -19,7 +19,7 @@ class r0785071:
     percentageOfSwitches_init = 0.1
     crossoverProbability_init = 1
 
-    iterations = 10
+    iterations = 1000
     genForConvergence = 5
     stoppingConvergenceSlope = 0.000001
 
@@ -48,7 +48,7 @@ class r0785071:
             total += distanceMatrix[self.path[len(self.path) - 1]][0]
             self.cost = total
 
-        def mutate(self, distanceMatrix, force=False):
+        def mutateSelf(self, distanceMatrix, force=False):
             if np.random.rand() <= self.mutationProbability or force:
                 self.mutate_path_randomSwaps()
                 # TODO: also mutate other values for self Adaptability
@@ -83,7 +83,7 @@ class r0785071:
                 ind.path = pathNN
                 ind.setCost(self.distanceMatrix)
                 if i != self.populationSize - 1:
-                    ind.mutate(self.distanceMatrix, force=True)
+                    ind.mutateSelf(self.distanceMatrix, force=True)
                 population[i] = ind
             else:
                 population[i] = r0785071.Individual(self.numberOfCities, self.distanceMatrix,
@@ -93,18 +93,18 @@ class r0785071:
         self.population = population
 
     def selection(self):
-        return self.k_tournament(self.k_selection)
+        return self.k_tournament(self.k_selection, self.population)
 
     def crossover(self, p1, p2):
         if np.random.rand() <= (p1.crossoverProbability + p2.crossoverProbability) / 2:
             return self.pmx_pair(p1, p2)
         return None
 
-    def elimination(self):
+    def elimination(self, oldPopulation: np.array(Individual)):
         newPopulation = np.ndarray(self.populationSize, dtype=r0785071.Individual)
         for i in range(self.populationSize):
-            newPopulation[i] = self.k_tournament(self.k_elimination)
-        self.population = newPopulation
+            newPopulation[i] = self.k_tournament(self.k_elimination, oldPopulation)
+        return newPopulation
 
     def stoppingCriteria(self, means, index):
         flag = True
@@ -144,7 +144,7 @@ class r0785071:
 
             # mutation
             for ind in self.population:
-                ind.mutate(self.distanceMatrix)
+                ind.mutateSelf(self.distanceMatrix)
 
             # crossover
             offsprings = np.ndarray(self.populationSize, dtype=r0785071.Individual)
@@ -154,15 +154,17 @@ class r0785071:
                 p2 = self.selection()
                 new_individuals = self.crossover(p1, p2)
                 if new_individuals is not None:
-                    offsprings[nbr_offspring] = new_individuals[0].mutate
-                    offsprings[nbr_offspring + 1] = new_individuals[1].mutate
+                    offsprings[nbr_offspring] = new_individuals[0]
+                    offsprings[nbr_offspring].mutateSelf(self.distanceMatrix)
+                    offsprings[nbr_offspring + 1] = new_individuals[1]
+                    offsprings[nbr_offspring+1].mutateSelf(self.distanceMatrix)
                     nbr_offspring += 2
             offsprings.resize(nbr_offspring)
 
-            self.population = np.concatenate((self.population, offsprings))
+            newPopulation = np.concatenate((self.population, offsprings))
 
             # elimination
-            self.elimination()
+            self.population = self.elimination(newPopulation)
 
             (meanObjective, bestObjective, bestSolution) = self.accessQualityOfGeneration()
             if self.printEveryIter:
@@ -206,16 +208,17 @@ class r0785071:
         means[0] = newMean
         return means
 
-    def k_tournament(self, k) -> Individual:
-        random_index_Sample = sample(range(self.populationSize), k)
+    def k_tournament(self, k, population: np.array(Individual)) -> Individual:
+        random_index_Sample = sample(range(population.size), k)
         costSample = np.ndarray(k)
+
         for i in range(k):
-            ind = self.population[random_index_Sample[i]]
+            ind = population[random_index_Sample[i]]
             costSample[i] = ind.cost
 
         best_index = np.argmin(costSample)
 
-        return self.population[random_index_Sample[best_index]]
+        return population[random_index_Sample[best_index]]
 
     def pmx_pair(self, p1: Individual, p2: Individual):
         a = p1.path
@@ -229,7 +232,7 @@ class r0785071:
         child2path = self.pmx(a, b, start, stop)
         childMutationProbability = (p1.mutationProbability + p2.mutationProbability) / 2
         childCrossoveerProbability = (p1.crossoverProbability + p2.crossoverProbability) / 2
-        childNumberOfSwitches = (p1.numberOfSwitches + p2.numberOfSwitches) / 2
+        childNumberOfSwitches = int((p1.numberOfSwitches + p2.numberOfSwitches) / 2)
 
         child1 = r0785071.Individual(p1.numberOfCities, self.distanceMatrix, childMutationProbability,
                                      childNumberOfSwitches, childCrossoveerProbability)
@@ -281,4 +284,4 @@ class r0785071:
 
 if __name__ == "__main__":
     r = r0785071()
-    r.optimize("tour29.csv")
+    r.optimize("tour1000.csv")
