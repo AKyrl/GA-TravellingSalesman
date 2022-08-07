@@ -10,9 +10,11 @@ from random import sample
 class r0785071:
     populationSize = 200
 
+    useNN = True
+    percentageNN = 0.2
+
     k_selection = 8
     k_elimination = 8
-
     mutationProbability_init = 0.1
     percentageOfSwitches_init = 0.1
     crossoverProbability_init = 1
@@ -25,7 +27,8 @@ class r0785071:
 
     class Individual:
 
-        def __init__(self, numberOfCities, distanceMatrix, mutationProbability_init, numberOfSwitches_init, crossoverProbability_init):
+        def __init__(self, numberOfCities, distanceMatrix, mutationProbability_init, numberOfSwitches_init,
+                     crossoverProbability_init):
             self.numberOfSwitches = numberOfSwitches_init
             self.mutationProbability = mutationProbability_init
             self.crossoverProbability = crossoverProbability_init
@@ -45,10 +48,10 @@ class r0785071:
             total += distanceMatrix[self.path[len(self.path) - 1]][0]
             self.cost = total
 
-        def mutate(self, distanceMatrix):
-            if np.random.rand() <= self.mutationProbability:
+        def mutate(self, distanceMatrix, force=False):
+            if np.random.rand() <= self.mutationProbability or force:
                 self.mutate_path_randomSwaps()
-                # also mutate other values for self Adaptability
+                # TODO: also mutate other values for self Adaptability
                 self.setCost(distanceMatrix)
             return
 
@@ -70,8 +73,23 @@ class r0785071:
     def initialisation(self):
         population = np.ndarray(dtype=r0785071.Individual, shape=self.populationSize)
         numberOfSwitches_init = int(self.percentageOfSwitches_init * self.numberOfCities)
+        numberOfNN = int(self.populationSize * self.percentageNN)
+        if self.useNN:
+            pathNN = self.getNearestNeighbourPath(self.distanceMatrix)
         for i in range(self.populationSize):
-            population[i] = r0785071.Individual(self.numberOfCities, self.distanceMatrix, self.mutationProbability_init, numberOfSwitches_init, self.crossoverProbability_init)
+            if self.populationSize - numberOfNN < i:
+                ind = r0785071.Individual(self.numberOfCities, self.distanceMatrix, self.mutationProbability_init,
+                                          numberOfSwitches_init, self.crossoverProbability_init)
+                ind.path = pathNN
+                ind.setCost(self.distanceMatrix)
+                if i != self.populationSize - 1:
+                    ind.mutate(self.distanceMatrix, force=True)
+                population[i] = ind
+            else:
+                population[i] = r0785071.Individual(self.numberOfCities, self.distanceMatrix,
+                                                    self.mutationProbability_init, numberOfSwitches_init,
+                                                    self.crossoverProbability_init)
+
         self.population = population
 
     def selection(self):
@@ -199,7 +217,7 @@ class r0785071:
 
         return self.population[random_index_Sample[best_index]]
 
-    def pmx_pair(self, p1 : Individual, p2 : Individual):
+    def pmx_pair(self, p1: Individual, p2: Individual):
         a = p1.path
         b = p2.path
 
@@ -213,15 +231,19 @@ class r0785071:
         childCrossoveerProbability = (p1.crossoverProbability + p2.crossoverProbability) / 2
         childNumberOfSwitches = (p1.numberOfSwitches + p2.numberOfSwitches) / 2
 
-        child1 = r0785071.Individual(p1.numberOfCities, self.distanceMatrix, childMutationProbability, childNumberOfSwitches, childCrossoveerProbability)
+        child1 = r0785071.Individual(p1.numberOfCities, self.distanceMatrix, childMutationProbability,
+                                     childNumberOfSwitches, childCrossoveerProbability)
         child2 = r0785071.Individual(p1.numberOfCities, self.distanceMatrix, childMutationProbability,
                                      childNumberOfSwitches, childCrossoveerProbability)
         child1.path = child1path
         child2.path = child2path
+        child1.setCost(self.distanceMatrix)
+        child2.setCost(self.distanceMatrix)
 
         return child1, child2
 
-    def pmx(self, a, b, start, stop): # https://www.uio.no/studier/emner/matnat/ifi/INF3490/h16/exercises/inf3490-sol2.pdf
+    def pmx(self, a, b, start,
+            stop):  # https://www.uio.no/studier/emner/matnat/ifi/INF3490/h16/exercises/inf3490-sol2.pdf
         child = [None] * len(a)
         # Copy a slice from first parent:
         child[start:stop] = a[start:stop]
@@ -239,7 +261,24 @@ class r0785071:
                 child[ind] = b[ind]
         return np.array(child)
 
+    def getNearestNeighbourPath(self, A,
+                                start=0):  # https://stackoverflow.com/questions/17493494/nearest-neighbour-algorithm
+        path = [start]
+        N = A.shape[0]
+        mask = np.ones(N, dtype=bool)  # boolean values indicating which
+        # locations have not been visited
+        mask[start] = False
+
+        for i in range(N - 1):
+            last = path[-1]
+            next_ind = np.argmin(A[last][mask])  # find minimum of remaining locations
+            next_loc = np.arange(N)[mask][next_ind]  # convert to original location
+            path.append(next_loc)
+            mask[next_loc] = False
+
+        return np.array(path[1:])
+
 
 if __name__ == "__main__":
     r = r0785071()
-    r.optimize("tour100.csv")
+    r.optimize("tour29.csv")
