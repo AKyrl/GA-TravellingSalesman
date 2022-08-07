@@ -3,21 +3,23 @@ import csv
 import Reporter
 import numpy as np
 import sys
-from random import sample
-
+from random import sample, randint
+from copy import deepcopy
 
 # Modify the class name to match your student number.
 class r0785071:
     populationSize = 200
 
     useNN = True
+    writeCSV = True
     percentageNN = 0.2
 
-    k_selection = 8
-    k_elimination = 8
-    mutationProbability_init = 0.1
-    percentageOfSwitches_init = 0.1
+    kselection_init = 5
+    kelimination_init = 5
+    mutationProbability_init = 0.2
+    percentageOfSwitches_init = 0.05
     crossoverProbability_init = 1
+    variation = 0.4
 
     iterations = 1000
     genForConvergence = 5
@@ -27,31 +29,38 @@ class r0785071:
 
     class Individual:
 
+        mutationVariation = 0.4
+        kextraVariation = 2
+
         def __init__(self, numberOfCities, distanceMatrix, mutationProbability_init, numberOfSwitches_init,
-                     crossoverProbability_init):
-            self.numberOfSwitches = numberOfSwitches_init
-            self.mutationProbability = mutationProbability_init
-            self.crossoverProbability = crossoverProbability_init
+                     crossoverProbability_init, kselection_init, kelimination_init, variation):
+
+            self.numberOfSwitches = self.varyInt(numberOfSwitches_init, variation)
+            self.mutationProbability = self.varyProbability(mutationProbability_init, variation)
+            self.crossoverProbability = self.varyProbability(crossoverProbability_init, variation)
             self.cost = None
+
+            self.kselection = self.varyInt(kselection_init, variation)
+            self.kelimination = self.varyInt(kelimination_init, variation)
+
             self.path = np.random.permutation(np.arange(1, numberOfCities))
             self.setCost(distanceMatrix)
             self.numberOfCities = numberOfCities
 
         def setCost(self, distanceMatrix):
-            total = distanceMatrix[0][self.path[0]]
-            for i in range(len(self.path) - 1):
-                c = distanceMatrix[self.path[i]][self.path[i + 1]]
-                if c == np.inf:
-                    total += sys.maxsize
-                else:
-                    total += c
-            total += distanceMatrix[self.path[len(self.path) - 1]][0]
-            self.cost = total
+            self.cost = self.getCostOfPath(self.path, distanceMatrix)
 
         def mutateSelf(self, distanceMatrix, force=False):
             if np.random.rand() <= self.mutationProbability or force:
                 self.mutate_path_randomSwaps()
-                # TODO: also mutate other values for self Adaptability
+
+                self.numberOfSwitches = self.varyInt(self.numberOfSwitches, self.mutationVariation)
+                self.mutationProbability = self.varyProbability(self.mutationProbability, self.mutationVariation)
+                self.crossoverProbability = self.varyProbability(self.crossoverProbability, self.mutationVariation)
+
+                self.kelimination = self.varyInt(self.kelimination, self.mutationVariation) + self.kextraVariation
+                self.kselection = self.varyInt(self.kselection, self.mutationVariation) + self.kextraVariation
+
                 self.setCost(distanceMatrix)
             return
 
@@ -62,6 +71,42 @@ class r0785071:
                 temp = self.path[index1]
                 self.path[index1] = self.path[index2]
                 self.path[index2] = temp
+
+        ### Check neighborhood for better solutions
+        # neighbours are paths with 2 adjacent towns switched
+        def improveWithLSO(self, distanceMatrix, fast = False):
+            bestPath = deepcopy(self.path)
+            bestCost = self.cost
+            for i in range(self.numberOfCities-2):
+                comparePath = deepcopy(self.path)
+                comparePath[i+1] = self.path[i]
+                comparePath[i] = self.path[i+1]
+                compareCost = self.getCostOfPath(comparePath, distanceMatrix)
+                if bestCost > compareCost:
+                    bestPath = comparePath
+                    if fast:
+                        break
+            self.path = bestPath
+            self.setCost(distanceMatrix)
+
+        def getCostOfPath(self, path, distanceMatrix):
+            total = distanceMatrix[0][path[0]]
+            for i in range(len(path) - 1):
+                c = distanceMatrix[path[i]][path[i + 1]]
+                if c == np.inf:
+                    total += 10 ** 10
+                else:
+                    total += c
+            total += distanceMatrix[path[len(path) - 1]][0]
+            return total
+
+
+        def varyProbability(self, probability, variation):
+            return np.clip(probability + np.random.uniform(-variation, variation), 0, 1)
+
+        def varyInt(self, number, variation):
+            intVariation = min(1, int(number * variation))
+            return randint(number - intVariation, number + intVariation)
 
     def __init__(self):
 
@@ -79,7 +124,8 @@ class r0785071:
         for i in range(self.populationSize):
             if self.populationSize - numberOfNN < i:
                 ind = r0785071.Individual(self.numberOfCities, self.distanceMatrix, self.mutationProbability_init,
-                                          numberOfSwitches_init, self.crossoverProbability_init)
+                                          numberOfSwitches_init, self.crossoverProbability_init, self.kselection_init,
+                                          self.kelimination_init, self.variation)
                 ind.path = pathNN
                 ind.setCost(self.distanceMatrix)
                 if i != self.populationSize - 1:
@@ -88,22 +134,23 @@ class r0785071:
             else:
                 population[i] = r0785071.Individual(self.numberOfCities, self.distanceMatrix,
                                                     self.mutationProbability_init, numberOfSwitches_init,
-                                                    self.crossoverProbability_init)
-
+                                                    self.crossoverProbability_init, self.kselection_init,
+                                                    self.kelimination_init, self.variation)
+                population[i].improveWithLSO(self.distanceMatrix)
         self.population = population
 
-    def selection(self):
-        return self.k_tournament(self.k_selection, self.population)
+    def selection(self, kselection):
+        return self.k_tournament(kselection, self.population)
 
     def crossover(self, p1, p2):
         if np.random.rand() <= (p1.crossoverProbability + p2.crossoverProbability) / 2:
             return self.pmx_pair(p1, p2)
         return None
 
-    def elimination(self, oldPopulation: np.array(Individual)):
+    def elimination(self, oldPopulation: np.array(Individual), kelimination):
         newPopulation = np.ndarray(self.populationSize, dtype=r0785071.Individual)
         for i in range(self.populationSize):
-            newPopulation[i] = self.k_tournament(self.k_elimination, oldPopulation)
+            newPopulation[i] = self.k_tournament(kelimination, oldPopulation)
         return newPopulation
 
     def stoppingCriteria(self, means, index):
@@ -132,49 +179,61 @@ class r0785071:
 
         (meanObjective, bestObjective, bestSolution) = self.accessQualityOfGeneration()
         lastMeans = np.zeros(self.genForConvergence)
-
-        f = open('plot.csv', 'w', newline='')
-        writer = csv.writer(f)
-        writer.writerow(['Iteration', 'MeanValue', 'BestValue'])
+        if self.writeCSV:
+            f = open('plot.csv', 'w', newline='')
+            writer = csv.writer(f)
+            writer.writerow(['Iteration', 'MeanValue', 'BestValue', 'kelimination', 'kselection', 'meanMutation', 'meanCrossover', 'meanSwitches'])
 
         iteration = 0
         lastMeans = self.addNewMean(lastMeans, meanObjective)
 
         while iteration < self.iterations and self.stoppingCriteria(lastMeans, iteration):
 
-            # mutation
+            # Setup
+            kselection = self.getAveragek(flag="selection")
+            kelimination = self.getAveragek(flag="elimination")
+
+            # Mutation
             for ind in self.population:
                 ind.mutateSelf(self.distanceMatrix)
 
-            # crossover
+            # Crossover
             offsprings = np.ndarray(self.populationSize, dtype=r0785071.Individual)
             nbr_offspring = 0
             for j in range(self.populationSize // 2):
-                p1 = self.selection()
-                p2 = self.selection()
+                p1 = self.selection(kselection)
+                p2 = self.selection(kselection)
                 new_individuals = self.crossover(p1, p2)
                 if new_individuals is not None:
                     offsprings[nbr_offspring] = new_individuals[0]
                     offsprings[nbr_offspring].mutateSelf(self.distanceMatrix)
                     offsprings[nbr_offspring + 1] = new_individuals[1]
-                    offsprings[nbr_offspring+1].mutateSelf(self.distanceMatrix)
+                    offsprings[nbr_offspring + 1].mutateSelf(self.distanceMatrix)
                     nbr_offspring += 2
             offsprings.resize(nbr_offspring)
 
             newPopulation = np.concatenate((self.population, offsprings))
 
+            # Apply LSO
+            for ind in newPopulation:
+                ind.improveWithLSO(self.distanceMatrix, fast=True)
+
             # elimination
-            self.population = self.elimination(newPopulation)
+            self.population = self.elimination(newPopulation, kelimination)
 
             (meanObjective, bestObjective, bestSolution) = self.accessQualityOfGeneration()
-            if self.printEveryIter:
-                print("meanObjective:", meanObjective, ", bestObjective:", bestObjective, "diff:",
-                      meanObjective - bestObjective)
-                # print(bestSolution)
-                print("I:", iteration)
 
             # write a row to the csv file
-            writer.writerow([iteration, meanObjective, bestObjective])
+            if self.writeCSV:
+                meanMutation, meanCrossover, meanSwitches = self.getMeans()
+                writer.writerow([iteration, meanObjective, bestObjective, kelimination, kselection, meanMutation, meanCrossover, meanSwitches])
+                if self.printEveryIter:
+                    print("meanObjective:", meanObjective, ", bestObjective:", bestObjective, "diff:",
+                          meanObjective - bestObjective, "kselection:", kselection, "kelimination:", kelimination,
+                          "meanMutation:", meanMutation, "meanCrossover:", meanCrossover, "meanSwitches:", meanSwitches)
+
+                    # print(bestSolution)
+                    print("I:", iteration)
 
             # Call the reporter with:
             #  - the mean objective function value of the population
@@ -233,11 +292,15 @@ class r0785071:
         childMutationProbability = (p1.mutationProbability + p2.mutationProbability) / 2
         childCrossoveerProbability = (p1.crossoverProbability + p2.crossoverProbability) / 2
         childNumberOfSwitches = int((p1.numberOfSwitches + p2.numberOfSwitches) / 2)
+        childkSelection = round((p1.kselection + p2.kselection) / 2)
+        childkElimination = round((p1.kelimination + p2.kelimination) / 2)
 
         child1 = r0785071.Individual(p1.numberOfCities, self.distanceMatrix, childMutationProbability,
-                                     childNumberOfSwitches, childCrossoveerProbability)
+                                     childNumberOfSwitches, childCrossoveerProbability, childkSelection,
+                                     childkElimination, self.variation)
         child2 = r0785071.Individual(p1.numberOfCities, self.distanceMatrix, childMutationProbability,
-                                     childNumberOfSwitches, childCrossoveerProbability)
+                                     childNumberOfSwitches, childCrossoveerProbability, childkSelection,
+                                     childkElimination, self.variation)
         child1.path = child1path
         child2.path = child2path
         child1.setCost(self.distanceMatrix)
@@ -280,6 +343,25 @@ class r0785071:
             mask[next_loc] = False
 
         return np.array(path[1:])
+
+    def getAveragek(self, flag):
+        total = 0
+        for ind in self.population:
+            if flag == "selection":
+                total += ind.kselection
+            elif flag == "elimination":
+                total += ind.kelimination
+        return round(total / self.populationSize)
+
+    def getMeans(self):
+        totalMuation = 0
+        totalCrossover = 0
+        totalSwitches = 0
+        for ind in self.population:
+            totalMuation += ind.mutationProbability
+            totalCrossover += ind.crossoverProbability
+            totalSwitches += ind.numberOfSwitches
+        return totalMuation / self.populationSize, totalCrossover / self.populationSize, round(totalSwitches / self.populationSize)
 
 
 if __name__ == "__main__":
