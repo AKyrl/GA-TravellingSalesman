@@ -2,22 +2,24 @@ import csv
 
 import Reporter
 import numpy as np
-import sys
 from random import sample, randint
 from copy import deepcopy
+
 
 # Modify the class name to match your student number.
 class r0785071:
     populationSize = 200
 
     useNN = True
-    writeCSV = True
     percentageNN = 0.2
+    writeCSV = False
+    usedLSO_initialisation = True
+    useLSO_parents = True
 
-    kselection_init = 5
-    kelimination_init = 5
-    mutationProbability_init = 0.2
-    percentageOfSwitches_init = 0.05
+    kselection_init = 2
+    kelimination_init = 2
+    mutationProbability_init = 0.3
+    percentageOfSwitches_init = 0.1
     crossoverProbability_init = 1
     variation = 0.4
 
@@ -25,12 +27,12 @@ class r0785071:
     genForConvergence = 5
     stoppingConvergenceSlope = 0.000001
 
-    printEveryIter = True
+    printEveryIter = False
 
     class Individual:
 
-        mutationVariation = 0.4
-        kextraVariation = 2
+        mutationVariation = 0.3
+        kVariation = 2
 
         def __init__(self, numberOfCities, distanceMatrix, mutationProbability_init, numberOfSwitches_init,
                      crossoverProbability_init, kselection_init, kelimination_init, variation):
@@ -40,8 +42,8 @@ class r0785071:
             self.crossoverProbability = self.varyProbability(crossoverProbability_init, variation)
             self.cost = None
 
-            self.kselection = self.varyInt(kselection_init, variation)
-            self.kelimination = self.varyInt(kelimination_init, variation)
+            self.kelimination = max(1, randint(kelimination_init - self.kVariation, kelimination_init + self.kVariation))
+            self.kselection = max(1, randint(kselection_init - self.kVariation, kselection_init + self.kVariation))
 
             self.path = np.random.permutation(np.arange(1, numberOfCities))
             self.setCost(distanceMatrix)
@@ -58,8 +60,9 @@ class r0785071:
                 self.mutationProbability = self.varyProbability(self.mutationProbability, self.mutationVariation)
                 self.crossoverProbability = self.varyProbability(self.crossoverProbability, self.mutationVariation)
 
-                self.kelimination = self.varyInt(self.kelimination, self.mutationVariation) + self.kextraVariation
-                self.kselection = self.varyInt(self.kselection, self.mutationVariation) + self.kextraVariation
+                self.kelimination = max(1, randint(self.kelimination - self.kVariation,
+                                                   self.kelimination + self.kVariation))
+                self.kselection = max(1, randint(self.kselection - self.kVariation, self.kselection + self.kVariation))
 
                 self.setCost(distanceMatrix)
             return
@@ -72,19 +75,19 @@ class r0785071:
                 self.path[index1] = self.path[index2]
                 self.path[index2] = temp
 
-        ### Check neighborhood for better solutions
+        # Check neighborhood for better solutions
         # neighbours are paths with 2 adjacent towns switched
-        def improveWithLSO(self, distanceMatrix, fast = False):
+        def improveWithLSO(self, distanceMatrix, earlyStop=False):
             bestPath = deepcopy(self.path)
             bestCost = self.cost
-            for i in range(self.numberOfCities-2):
+            for i in np.random.permutation(range(self.numberOfCities - 2)):  # make all switches in random order
                 comparePath = deepcopy(self.path)
-                comparePath[i+1] = self.path[i]
-                comparePath[i] = self.path[i+1]
+                comparePath[i + 1] = self.path[i]
+                comparePath[i] = self.path[i + 1]
                 compareCost = self.getCostOfPath(comparePath, distanceMatrix)
                 if bestCost > compareCost:
                     bestPath = comparePath
-                    if fast:
+                    if earlyStop:  # if one switch is found early stop to save computational time
                         break
             self.path = bestPath
             self.setCost(distanceMatrix)
@@ -100,12 +103,11 @@ class r0785071:
             total += distanceMatrix[path[len(path) - 1]][0]
             return total
 
-
         def varyProbability(self, probability, variation):
             return np.clip(probability + np.random.uniform(-variation, variation), 0, 1)
 
         def varyInt(self, number, variation):
-            intVariation = min(1, int(number * variation))
+            intVariation = max(1, int(number * variation))
             return randint(number - intVariation, number + intVariation)
 
     def __init__(self):
@@ -136,7 +138,8 @@ class r0785071:
                                                     self.mutationProbability_init, numberOfSwitches_init,
                                                     self.crossoverProbability_init, self.kselection_init,
                                                     self.kelimination_init, self.variation)
-                population[i].improveWithLSO(self.distanceMatrix)
+                if self.usedLSO_initialisation:
+                    population[i].improveWithLSO(self.distanceMatrix)
         self.population = population
 
     def selection(self, kselection):
@@ -144,6 +147,9 @@ class r0785071:
 
     def crossover(self, p1, p2):
         if np.random.rand() <= (p1.crossoverProbability + p2.crossoverProbability) / 2:
+            if self.useLSO_parents:
+                p1.improveWithLSO(self.distanceMatrix, earlyStop=True)  # search for 1 improvement in neighborhood
+                p2.improveWithLSO(self.distanceMatrix, earlyStop=True)  #
             return self.pmx_pair(p1, p2)
         return None
 
@@ -182,12 +188,14 @@ class r0785071:
         if self.writeCSV:
             f = open('plot.csv', 'w', newline='')
             writer = csv.writer(f)
-            writer.writerow(['Iteration', 'MeanValue', 'BestValue', 'kelimination', 'kselection', 'meanMutation', 'meanCrossover', 'meanSwitches'])
+            writer.writerow(
+                ['Iteration', 'MeanValue', 'BestValue', 'kelimination', 'kselection', 'meanMutation', 'meanCrossover',
+                 'meanSwitches'])
 
         iteration = 0
         lastMeans = self.addNewMean(lastMeans, meanObjective)
 
-        while iteration < self.iterations and self.stoppingCriteria(lastMeans, iteration):
+        while iteration <= self.iterations and self.stoppingCriteria(lastMeans, iteration):
 
             # Setup
             kselection = self.getAveragek(flag="selection")
@@ -214,10 +222,6 @@ class r0785071:
 
             newPopulation = np.concatenate((self.population, offsprings))
 
-            # Apply LSO
-            for ind in newPopulation:
-                ind.improveWithLSO(self.distanceMatrix, fast=True)
-
             # elimination
             self.population = self.elimination(newPopulation, kelimination)
 
@@ -226,7 +230,9 @@ class r0785071:
             # write a row to the csv file
             if self.writeCSV:
                 meanMutation, meanCrossover, meanSwitches = self.getMeans()
-                writer.writerow([iteration, meanObjective, bestObjective, kelimination, kselection, meanMutation, meanCrossover, meanSwitches])
+                writer.writerow(
+                    [iteration, meanObjective, bestObjective, kelimination, kselection, meanMutation, meanCrossover,
+                     meanSwitches])
                 if self.printEveryIter:
                     print("meanObjective:", meanObjective, ", bestObjective:", bestObjective, "diff:",
                           meanObjective - bestObjective, "kselection:", kselection, "kelimination:", kelimination,
@@ -290,16 +296,16 @@ class r0785071:
         child1path = self.pmx(b, a, start, stop)
         child2path = self.pmx(a, b, start, stop)
         childMutationProbability = (p1.mutationProbability + p2.mutationProbability) / 2
-        childCrossoveerProbability = (p1.crossoverProbability + p2.crossoverProbability) / 2
+        childCrossoverProbability = (p1.crossoverProbability + p2.crossoverProbability) / 2
         childNumberOfSwitches = int((p1.numberOfSwitches + p2.numberOfSwitches) / 2)
         childkSelection = round((p1.kselection + p2.kselection) / 2)
         childkElimination = round((p1.kelimination + p2.kelimination) / 2)
 
         child1 = r0785071.Individual(p1.numberOfCities, self.distanceMatrix, childMutationProbability,
-                                     childNumberOfSwitches, childCrossoveerProbability, childkSelection,
+                                     childNumberOfSwitches, childCrossoverProbability, childkSelection,
                                      childkElimination, self.variation)
         child2 = r0785071.Individual(p1.numberOfCities, self.distanceMatrix, childMutationProbability,
-                                     childNumberOfSwitches, childCrossoveerProbability, childkSelection,
+                                     childNumberOfSwitches, childCrossoverProbability, childkSelection,
                                      childkElimination, self.variation)
         child1.path = child1path
         child2.path = child2path
@@ -361,9 +367,10 @@ class r0785071:
             totalMuation += ind.mutationProbability
             totalCrossover += ind.crossoverProbability
             totalSwitches += ind.numberOfSwitches
-        return totalMuation / self.populationSize, totalCrossover / self.populationSize, round(totalSwitches / self.populationSize)
+        return totalMuation / self.populationSize, totalCrossover / self.populationSize, round(
+            totalSwitches / self.populationSize)
 
 
 if __name__ == "__main__":
     r = r0785071()
-    r.optimize("tour1000.csv")
+    r.optimize("tour29.csv")
