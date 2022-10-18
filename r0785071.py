@@ -12,7 +12,7 @@ class r0785071:
 
     useNN = True
     percentageNN = 0.2
-    writeCSV = False
+    writeCSV = True
     usedLSO_initialisation = True
     useLSO_parents = True
 
@@ -27,7 +27,7 @@ class r0785071:
     genForConvergence = 5
     stoppingConvergenceSlope = 0.000001
 
-    printEveryIter = False
+    printEveryIter = True
 
     class Individual:
 
@@ -131,7 +131,7 @@ class r0785071:
                 ind.path = pathNN
                 ind.setCost(self.distanceMatrix)
                 if i != self.populationSize - 1:
-                    ind.mutateSelf(self.distanceMatrix, force=True)
+                    ind.    mutateSelf(self.distanceMatrix, force=True)
                 population[i] = ind
             else:
                 population[i] = r0785071.Individual(self.numberOfCities, self.distanceMatrix,
